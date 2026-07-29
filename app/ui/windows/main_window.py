@@ -47,6 +47,7 @@ from app.data.database.connection import DatabaseConnection
 from app.data.repositories import ProjectRepository
 from app.data.storage import CredentialManager
 from app.ui.widgets import DashboardWidget
+from app.ui.widgets import ProcessingPage
 
 logger = logging.getLogger(__name__)
 
@@ -245,9 +246,12 @@ class MainWindow(QMainWindow):
         return widget
 
     def _build_processing_tab(self) -> QWidget:
-        from app.ui.widgets import FolderScanWidget
-
-        return FolderScanWidget(scanner=self._scanner)
+        # `ProcessingPage` empilha `FolderScanWidget` +
+        # `BatchProcessingWidget` e faz a ponte entre eles — o
+        # `FolderScanWidget` emite `scan_finished` quando o scan
+        # termina, e o `BatchProcessingWidget` recebe a lista
+        # convertida em `ImageJob` via `set_jobs`.
+        return ProcessingPage(scanner=self._scanner)
 
     def _open_presets_dialog(self) -> None:
         from app.data.storage import PromptPresetStore

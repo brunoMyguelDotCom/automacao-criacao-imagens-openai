@@ -134,6 +134,11 @@ class BatchProcessingWidget(QWidget):
     def set_provider(self, provider: ImageGenerationProvider) -> None:
         """Define o provider (chamado pela MainWindow após init)."""
         self._provider = provider
+        # Reavalia habilitação do botão Iniciar.
+        self._start_btn.setEnabled(
+            bool(self._pending_jobs) and self._provider is not None
+        )
+        self._refresh_start_hint()
 
     def set_jobs(self, jobs: Iterable[ImageJob], batch_id: str = "") -> None:
         """Define a lista de jobs a processar.
@@ -146,6 +151,7 @@ class BatchProcessingWidget(QWidget):
         # Atualiza label de total.
         self._total_label.setText(f"{len(self._pending_jobs)} jobs configurados")
         self._start_btn.setEnabled(bool(self._pending_jobs) and self._provider is not None)
+        self._refresh_start_hint()
 
     # ------------------------------------------------------------------ #
     # API pública — start / pause / resume / cancel                       #
@@ -281,6 +287,26 @@ class BatchProcessingWidget(QWidget):
         self._cancel_btn.clicked.connect(self.cancel_batch)
         cc_layout.addWidget(self._cancel_btn)
 
+        # Empurra a nota para a direita do botão "Iniciar".
+        # Mantida na MESMA linha horizontal para que o vínculo
+        # visual entre nota e botão seja óbvio em qualquer SO.
+        cc_layout.addStretch(1)
+
+        # Nota informativa: explica por que o botão "Iniciar" pode
+        # estar desabilitado. Some quando o botão é habilitado
+        # (atualizada em `_refresh_start_hint`).
+        self._start_hint = QLabel()
+        self._start_hint.setTextFormat(Qt.RichText)
+        self._start_hint.setWordWrap(True)
+        self._start_hint.setAlignment(
+            Qt.AlignRight | Qt.AlignVCenter
+        )
+        self._start_hint.setStyleSheet(
+            "color: #9da7b3; font-size: 12px;"
+        )
+        self._start_hint.setVisible(False)
+        cc_layout.addWidget(self._start_hint)
+
         layout.addWidget(control_card)
         layout.addStretch(1)
 
@@ -342,6 +368,53 @@ class BatchProcessingWidget(QWidget):
             self._pause_btn.setEnabled(False)
             self._resume_btn.setEnabled(False)
             self._cancel_btn.setEnabled(False)
+
+        # Atualiza a nota informativa sobre os requisitos.
+        self._refresh_start_hint()
+
+    # ------------------------------------------------------------------ #
+    # Nota informativa sobre o botão "Iniciar"                            #
+    # ------------------------------------------------------------------ #
+
+    def _refresh_start_hint(self) -> None:
+        """Mostra/oculta a nota ao lado do botão Iniciar.
+
+        Aparece somente quando o botão está desabilitado por
+        FALTA de requisito (sem jobs ou sem provider). Some quando
+        o lote está rodando/pausado/cancelado/terminado — nesses
+        estados o botão fica desabilitado por outro motivo
+        (já existe um processor ativo) e a nota só geraria ruído.
+        """
+        if self._start_btn.isEnabled():
+            self._start_hint.setVisible(False)
+            return
+
+        # Só exibimos a nota no estado idle (sem processor ativo).
+        processor_active = self._processor is not None
+        if processor_active:
+            self._start_hint.setVisible(False)
+            return
+
+        missing: list[str] = []
+        if self._provider is None:
+            missing.append(
+                "chave da OpenAI configurada (aba Configuração)"
+            )
+        if not self._pending_jobs:
+            missing.append("imagens carregadas (clique em Escanear)")
+
+        if missing:
+            bullets = "".join(
+                f"<li style='margin:2px 0;'>{item}</li>" for item in missing
+            )
+            self._start_hint.setText(
+                "<span style='color:#d29922;'>ⓘ</span>&nbsp;"
+                "Para <b>Iniciar</b> é preciso:<br>"
+                f"<ul style='margin:4px 0 0 0; padding-left:18px;'>{bullets}</ul>"
+            )
+            self._start_hint.setVisible(True)
+        else:
+            self._start_hint.setVisible(False)
 
     # ------------------------------------------------------------------ #
     # Signals — religa eventos do processor aos slots                     #

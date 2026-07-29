@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThreadPool, Slot
+from PySide6.QtCore import Qt, QThreadPool, Signal, Slot
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.models import ImageStatus, ScanResult
+from app.core.models import ImageFileInfo, ImageStatus, ScanResult
 from app.core.services import ImageFolderScanner
 from app.ui.workers.scan_worker import ScanWorker
 
@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 
 class FolderScanWidget(QWidget):
     """Widget que permite escolher uma pasta e exibe o resultado do scan."""
+
+    # Emitido ao final de um scan bem-sucedido. A lista contém
+    # exatamente os `ImageFileInfo` encontrados (válidos + inválidos)
+    # — cabe ao consumidor decidir o que filtrar.
+    scan_finished = Signal(list)
 
     def __init__(self, scanner: ImageFolderScanner | None = None) -> None:
         super().__init__()
@@ -191,6 +196,11 @@ class FolderScanWidget(QWidget):
     @Slot(object)
     def _on_scan_result(self, result: ScanResult) -> None:
         self._render_result(result)
+        # Notifica consumidores (ex.: ProcessingPage) sobre os
+        # arquivos encontrados. A lista é exatamente a do scan —
+        # não filtramos inválidos aqui, isso é decisão do caller.
+        if result.folder_exists:
+            self.scan_finished.emit(list(result.files))
 
     @Slot(object)
     def _on_scan_error(self, exc: Exception) -> None:
