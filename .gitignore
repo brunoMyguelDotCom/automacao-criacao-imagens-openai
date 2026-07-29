@@ -10,6 +10,10 @@ venv/
 env/
 .venv*/
 
+#build
+build/
+dist/
+
 # PyInstaller
 *.manifest
 
