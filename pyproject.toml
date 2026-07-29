@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gerador-imagens-produto"
+version = "0.1.0"
+description = "Aplicativo desktop multiplataforma para geração automatizada de imagens de produto via API oficial da OpenAI."
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "PySide6>=6.6,<7",
+    "openai>=2.50,<3",
+    "keyring>=24,<26",
+    "cryptography>=42,<50",
+    "Pillow>=10,<13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "pytest-qt>=4.4,<5",
+]
+build = [
+    "PyInstaller>=6.6,<7",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra -q"
+pythonpath = ["."]

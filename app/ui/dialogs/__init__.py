@@ -1,0 +1,1 @@
+"""Diálogos modais e não-modais (configurações, presets, diagnóstico)."""

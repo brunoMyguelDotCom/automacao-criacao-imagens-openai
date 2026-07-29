@@ -1,0 +1,5 @@
+PySide6>=6.6,<7
+openai>=2.50,<3
+keyring>=24,<26
+cryptography>=42,<50
+Pillow>=10,<13

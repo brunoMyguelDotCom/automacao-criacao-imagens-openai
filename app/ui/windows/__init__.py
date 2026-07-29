@@ -1,0 +1,1 @@
+"""Janelas principais da aplicação (QMainWindow e derivados)."""

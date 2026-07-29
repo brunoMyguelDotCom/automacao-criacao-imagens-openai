@@ -1,0 +1,49 @@
+# Byte-compiled / otimizados
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Ambiente virtual
+.venv/
+venv/
+env/
+.venv*/
+
+# Distribuição / build
+build/
+dist/
+*.egg-info/
+*.spec
+
+# PyInstaller
+*.manifest
+
+# Testes / cobertura
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+.tox/
+
+# Bancos locais de teste
+*.sqlite3
+*.sqlite3-journal
+*.db
+/tests/**/test_*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Config local / artefatos
+.env
+.env.local
+.venv.bak
