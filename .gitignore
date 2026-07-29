@@ -10,12 +10,6 @@ venv/
 env/
 .venv*/
 
-# Distribuição / build
-build/
-dist/
-*.egg-info/
-*.spec
-
 # PyInstaller
 *.manifest
 
