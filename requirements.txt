@@ -3,3 +3,11 @@ openai>=2.50,<3
 keyring>=24,<26
 cryptography>=42,<50
 Pillow>=10,<13
+# V1 — automação do ChatGPT Desktop (Windows-only).
+# São importados lazy em app/core/automation/*, então não
+# quebram o import no dev Linux/macOS — só retornam False em
+# runtime quando chamados fora do Windows.
+pywin32>=306,<310; sys_platform == "win32"
+pygetwindow>=0.0.9,<1; sys_platform == "win32"
+pyperclip>=1.8,<2
+pyautogui>=0.9.54,<1; sys_platform == "win32"

@@ -149,3 +149,9 @@ DEFAULT_FACTORY_PROMPT = (
     "'LEVE E CONFORTÁVEL'. O foco deve ser totalmente na camiseta e o resultado deve "
     "parecer um catálogo profissional para e-commerce."
 )
+
+#: Model default do app quando o `PromptPreset.model` for `None`
+#: ou string vazia. Casa com o docstring do campo `'None = default'`.
+#: Manter centralizado aqui para que tanto o store quanto a UI
+#: possam referenciar o mesmo fallback.
+DEFAULT_MODEL = "gpt-image-1"

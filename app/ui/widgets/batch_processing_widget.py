@@ -131,8 +131,13 @@ class BatchProcessingWidget(QWidget):
     # Configuração                                                        #
     # ------------------------------------------------------------------ #
 
-    def set_provider(self, provider: ImageGenerationProvider) -> None:
-        """Define o provider (chamado pela MainWindow após init)."""
+    def set_provider(self, provider: ImageGenerationProvider | None) -> None:
+        """Define o provider (chamado pela MainWindow após init).
+
+        Aceita `None` — usado quando o usuário remove a chave da
+        OpenAI. O widget reage desligando o botão Iniciar e
+        exibindo a nota informativa.
+        """
         self._provider = provider
         # Reavalia habilitação do botão Iniciar.
         self._start_btn.setEnabled(
@@ -396,7 +401,13 @@ class BatchProcessingWidget(QWidget):
             return
 
         missing: list[str] = []
-        if self._provider is None:
+        # TODO(V1): checagem de API key desativada — motor agora é
+        # automação local. A linha abaixo fica morta na V1 porque
+        # ``self._provider`` deixa de ser ``None`` por falta de chave
+        # (a ``MainWindow._ensure_image_provider`` agora sempre
+        # instancia o ``ChatGPTDesktopAutomationProvider``). Removida
+        # definitivamente na V2 junto com o ``CredentialManager``.
+        if False and self._provider is None:  # noqa: V1 — desativada
             missing.append(
                 "chave da OpenAI configurada (aba Configuração)"
             )

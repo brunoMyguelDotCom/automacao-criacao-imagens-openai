@@ -29,10 +29,18 @@ Parâmetros suportados por ``client.images.edit()`` (confirmados via
 
 Limitações DOCUMENTADAS (importantes):
     * O parâmetro ``response_format`` aceita apenas ``"url"`` ou
-      ``"b64_json"``. Para garantir download confiável (a URL
-      temporária expira), o provider SEMPRE força
-      ``response_format="b64_json"`` internamente — mesmo que o
-      usuário peça outra coisa em ``extra_parameters``.
+      ``"b64_json"`` — e SÓ é suportado por ``dall-e-2``. Os modelos
+      GPT Image (``gpt-image-1``, etc.) ignoram esse campo e já
+      retornam base64-encoded images por padrão; enviar a chave
+      extra para esses modelos faz a API quebrar o parser interno
+      com erro genérico de JSON malformado
+      ("invalid character '-' in numeric literal").
+      Por isso o provider:
+        - para modelos GPT Image: omite ``response_format``
+          completamente (mesmo que o usuário/preset tenha pedido);
+        - para ``dall-e-2``: força ``response_format="b64_json"``
+          internamente porque URLs da OpenAI expiram em ~1h e não
+          são confiáveis para download.
     * A imagem de referência precisa ser PNG (ou JPG/WebP, dependendo
       do modelo) e <= ~4MB. Validação de tamanho fica a cargo da
       API; erros de input inválido viram ERR_INVALID_PARAMS.
@@ -92,12 +100,49 @@ _BACKOFF_CAP_S = 30.0
 _BACKOFF_JITTER_S = 0.5
 
 
+# URL oficial da API de imagens da OpenAI. Intencionalmente
+# hardcoded: o app deve bater na OpenAI real, sem depender de
+# env vars (``OPENAI_BASE_URL``) que podem estar configuradas no
+# shell do usuário (ex.: Ollama local em ``http://localhost:11434/v1``).
+# Se alguém setar a env var, o SDK seria enganado; por isso
+# também passamos ``base_url`` explicitamente em TODOS os pontos
+# onde instanciamos o cliente (ver ``_default_client_factory``,
+# ``main_window._openai_client_factory`` e
+# ``credential_manager._default_openai_factory``).
+OPENAI_API_BASE_URL: str = "https://api.openai.com/v1"
+
+
 class _LocalWriteError(Exception):
     """Erro interno do pipeline de gravação (validação Pillow,
     preparação de diretório, etc.). NÃO é uma exceção do SDK — é
     usada para distinguir falhas locais de falhas remotas quando o
     caller decide o error_code.
     """
+
+
+def _assert_openai_base_url(client: Any) -> None:
+    """Garante que o cliente OpenAI está apontando para a URL
+    oficial da OpenAI.
+
+    Defesa em runtime contra a env var ``OPENAI_BASE_URL`` no
+    shell do usuário: mesmo passando ``base_url`` explicitamente
+    ao construir o cliente, versões futuras do SDK (ou monkey
+    patches) poderiam alterá-la. Aqui batemos o martelo.
+
+    Falha com ``RuntimeError`` cuja mensagem começa com
+    ``"Cliente OpenAI está apontando para"`` — o
+    ``_map_exception`` do provider reconhece esse sinal e
+    converte em ``ERR_INVALID_PARAMS`` não-retryable.
+    """
+    effective = str(getattr(client, "base_url", "") or "")
+    # SDK devolve URL com barra final; normaliza para comparar
+    # de forma robusta.
+    if effective.rstrip("/") != OPENAI_API_BASE_URL.rstrip("/"):
+        raise RuntimeError(
+            f"Cliente OpenAI está apontando para {effective!r}, "
+            f"mas o app exige {OPENAI_API_BASE_URL!r}. Verifique "
+            f"a env var OPENAI_BASE_URL no shell do sistema."
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -270,6 +315,25 @@ class OpenAIImageGenerationProvider(ImageGenerationProvider):
         # Garante que o diretório de saída existe (ou pode ser criado).
         Path(request.output_path).parent.mkdir(parents=True, exist_ok=True)
 
+    # Único modelo em que ``response_format`` é de fato documentado e
+    # aceito pela API (via `images.edit`). Qualquer modelo GPT Image
+    # (``gpt-image-1``, ``gpt-image-1-mini``, ``gpt-image-1.5``,
+    # ``gpt-image-2``, e quaisquer versões futuras) NÃO aceita esse
+    # parâmetro — enviá-lo quebra o parser interno da API com um erro
+    # genérico de JSON malformado ("invalid character '-' in numeric
+    # literal") em vez de uma mensagem específica.
+    #
+    # IMPORTANTE: isto é uma ALLOW-LIST (só força o campo para o que
+    # está listado aqui), e não uma deny-list. Uma deny-list baseada
+    # em nomes de modelos GPT Image quebra automaticamente assim que a
+    # OpenAI lança uma variante nova (ex.: ``gpt-image-1-mini``) que
+    # ainda não estava na lista — foi exatamente isso que causou o
+    # erro relatado. Com allow-list, qualquer modelo desconhecido cai
+    # no lado seguro (omite o campo) em vez de quebrar.
+    _MODELS_WITH_RESPONSE_FORMAT: frozenset[str] = frozenset({
+        "dall-e-2",
+    })
+
     def _build_kwargs(self, request: GenerationRequest) -> dict[str, Any]:
         """Monta os kwargs a partir de ``request.extra_parameters``,
         filtrando apenas o que o SDK 2.50.0 aceita no ``images.edit``.
@@ -278,10 +342,12 @@ class OpenAIImageGenerationProvider(ImageGenerationProvider):
             * ``image`` e ``prompt`` vêm do request, NÃO do
               ``extra_parameters``.
             * ``model`` vem do request.
-            * ``response_format`` é FORÇADO para ``"b64_json"``
-              independente do que o usuário pedir — URLs da OpenAI
-              expiram em ~1h e não são confiáveis para download.
-              Isto está DOCUMENTADO no README.
+            * ``response_format`` SÓ é enviado quando o modelo realmente
+              o aceita (atualmente, apenas ``dall-e-2``). Para os
+              modelos GPT Image o parâmetro é OMITIDO — eles já retornam
+              base64-encoded images por padrão, e a OpenAI rejeita (com
+              erro confuso) o campo extra. Isto está DOCUMENTADO no
+              README.
             * Quaisquer chaves em ``extra_parameters`` que NÃO
               estejam no whitelist são IGNORADAS (logadas como
               warning) — em vez de explodir, o provider degrada
@@ -302,9 +368,18 @@ class OpenAIImageGenerationProvider(ImageGenerationProvider):
                     key,
                 )
 
-        # Força b64_json — sem isto o provider pode devolver URL
-        # temporária que expira.
-        filtered["response_format"] = "b64_json"
+        # ``response_format`` só é enviado para o modelo em que ele é
+        # documentado e aceito (``dall-e-2``): forçamos ``"b64_json"``
+        # porque URLs da OpenAI expiram em ~1h e não são confiáveis
+        # para download. Para QUALQUER outro modelo — incluindo
+        # variantes GPT Image ainda não lançadas — o campo é sempre
+        # omitido (o default seguro), mesmo que tenha vindo em
+        # ``extra_parameters`` de um preset antigo.
+        model_normalized = (request.model or "").strip()
+        if model_normalized in self._MODELS_WITH_RESPONSE_FORMAT:
+            filtered["response_format"] = "b64_json"
+        else:
+            filtered.pop("response_format", None)
 
         # Substitui pelos campos canônicos do request.
         filtered["model"] = request.model
@@ -610,7 +685,9 @@ class OpenAIImageGenerationProvider(ImageGenerationProvider):
             )
         if isinstance(exc, BadRequestError):
             # Heurística: 400 com palavras-chave de política de
-            # conteúdo -> CONTENT_REJECTED; caso contrário,
+            # conteúdo -> CONTENT_REJECTED; billing/limite de
+            # cobrança -> QUOTA_EXCEEDED (não-retryable, é problema
+            # da conta, não dos parâmetros); caso contrário,
             # INVALID_PARAMS.
             msg = (getattr(exc, "message", None) or str(exc) or "").lower()
             code_attr = (getattr(exc, "code", "") or "").lower()
@@ -622,12 +699,39 @@ class OpenAIImageGenerationProvider(ImageGenerationProvider):
                 "rejected for",
                 "policy",
             )
+            billing_signals = (
+                "billing_hard_limit_reached",
+                "billing_limit_user_error",
+                "billing_soft_limit_reached",
+                "insufficient_quota",
+                "insufficient funds",
+                "payment required",
+            )
             if any(s in msg for s in content_signals) or any(
                 s in code_attr for s in content_signals
             ):
                 return GenerationError(
                     code=ErrorCode.CONTENT_REJECTED,
                     message="Conteúdo rejeitado pela política da OpenAI.",
+                    retryable=False,
+                    provider_code=code_attr,
+                    http_status=400,
+                )
+            if any(s in msg for s in billing_signals) or any(
+                s in code_attr for s in billing_signals
+            ):
+                # Billing/quota NÃO é problema de parâmetros — é
+                # problema da CONTA. Sem retry: a UI precisa
+                # mostrar uma mensagem clara pedindo para o
+                # usuário verificar Billing no painel da OpenAI
+                # (https://platform.openai.com/account/billing).
+                return GenerationError(
+                    code=ErrorCode.QUOTA_EXCEEDED,
+                    message=(
+                        "Limite de cobrança (billing) da OpenAI "
+                        "atingido. Verifique créditos em "
+                        "platform.openai.com/account/billing."
+                    ),
                     retryable=False,
                     provider_code=code_attr,
                     http_status=400,
@@ -641,6 +745,18 @@ class OpenAIImageGenerationProvider(ImageGenerationProvider):
             )
 
         # Última linha de defesa — qualquer exceção não classificada.
+        # Antes, porém, interceptamos o sinal específico do
+        # ``_assert_openai_base_url``: ele levanta ``RuntimeError``
+        # com mensagem iniciando por "Cliente OpenAI está apontando
+        # para" — convertemos em ``ERR_INVALID_PARAMS`` para que a
+        # UI mostre a mensagem clara em vez de um erro genérico.
+        if isinstance(exc, RuntimeError) and "cliente openai está apontando" in str(exc).lower():
+            return GenerationError(
+                code=ErrorCode.INVALID_PARAMS,
+                message=str(exc),
+                retryable=False,
+            )
+
         return GenerationError(
             code=ErrorCode.UNKNOWN,
             message=f"Falha inesperada: {exc.__class__.__name__}: {exc}",
@@ -692,10 +808,21 @@ class OpenAIImageGenerationProvider(ImageGenerationProvider):
     @staticmethod
     def _default_client_factory(api_key: str, timeout: float) -> Any:
         """Constrói o cliente real. Import tardio para que outros
-        módulos do app não puxem o SDK sem precisar."""
+        módulos do app não puxem o SDK sem precisar.
+
+        Passa ``base_url`` explicitamente para ignorar a env var
+        ``OPENAI_BASE_URL`` do shell, e chama ``_assert_openai_base_url``
+        como segunda linha de defesa.
+        """
         from openai import OpenAI
 
-        return OpenAI(api_key=api_key, timeout=timeout)
+        client = OpenAI(
+            api_key=api_key,
+            timeout=timeout,
+            base_url=OPENAI_API_BASE_URL,
+        )
+        _assert_openai_base_url(client)
+        return client
 
     @staticmethod
     def _compute_backoff(attempt: int) -> float:

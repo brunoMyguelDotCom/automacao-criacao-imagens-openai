@@ -1,2 +1,0 @@
-pytest>=8,<9
-pytest-qt>=4.4,<5

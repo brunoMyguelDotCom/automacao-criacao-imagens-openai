@@ -34,6 +34,7 @@ from app.core.models.prompt_preset import (
     DEFAULT_FACTORY_DESCRIPTION,
     DEFAULT_FACTORY_NAME,
     DEFAULT_FACTORY_PROMPT,
+    DEFAULT_MODEL,
     PromptPreset,
 )
 
@@ -45,6 +46,7 @@ __all__ = [
     "DEFAULT_FACTORY_NAME",
     "DEFAULT_FACTORY_DESCRIPTION",
     "DEFAULT_FACTORY_PROMPT",
+    "DEFAULT_MODEL",
     "Batch",
     "BatchLot",
     "BatchPlan",

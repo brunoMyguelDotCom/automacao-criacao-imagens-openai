@@ -92,6 +92,10 @@ class MainWindow(QMainWindow):
         self._db: DatabaseConnection | None = None
         self._project_repo: ProjectRepository | None = None
         self._dashboard_widget: DashboardWidget | None = None
+        self._processing_page: ProcessingPage | None = None
+        # Provider de geração (criado lazy quando o usuário salva
+        # a chave ou quando a página de processamento é aberta).
+        self._image_provider = None
 
         self._tabs = QTabWidget(self)
         self._tabs.setTabPosition(QTabWidget.North)
@@ -99,7 +103,13 @@ class MainWindow(QMainWindow):
         self._tabs.setDocumentMode(True)
 
         self._tabs.addTab(self._build_config_tab(), "Configuração")
-        self._tabs.addTab(self._build_processing_tab(), "Processamento")
+        self._tabs.addTab(
+            _build_placeholder_tab(
+                "Processamento",
+                "Carregando widgets de processamento…",
+            ),
+            "Processamento",
+        )
         self._tabs.addTab(
             _build_placeholder_tab(
                 "Status Geral",
@@ -107,8 +117,9 @@ class MainWindow(QMainWindow):
             ),
             "Status Geral",
         )
-        # Quando a aba de Status Geral for exibida pela primeira
-        # vez, substituímos o placeholder pelo widget real.
+        # Quando a aba de Processamento ou a de Status Geral for
+        # exibida pela primeira vez, substituímos o placeholder
+        # pelo widget real.
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
         self.setCentralWidget(self._tabs)
@@ -124,6 +135,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     # Setup lazy de banco + repositórios                                  #
     # ------------------------------------------------------------------ #
+
+    def _ensure_preset_store(self):
+        """Instancia o `PromptPresetStore` (lazy, junto com o DB)."""
+        if not hasattr(self, "_preset_store") or self._preset_store is None:
+            from app.data.storage import PromptPresetStore
+            db = self._ensure_db()
+            self._preset_store = PromptPresetStore(db)
+        return self._preset_store
 
     def _ensure_db(self) -> DatabaseConnection:
         if self._db is None:
@@ -149,6 +168,107 @@ class MainWindow(QMainWindow):
         self._dashboard_widget.batch_double_clicked.connect(self._on_batch_activated)
         return self._dashboard_widget
 
+    def _ensure_processing_page(self) -> ProcessingPage:
+        """Instancia o `ProcessingPage` (lazy).
+
+        Garante o `PromptPresetStore` antes para que o
+        `_build_jobs` consiga puxar o preset padrão e preencher
+        `prompt_text`/`model`/`extra_parameters` dos jobs.
+        """
+        if self._processing_page is None:
+            preset_store = None
+            try:
+                preset_store = self._ensure_preset_store()
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "PromptPresetStore indisponível — jobs serão criados sem preset",
+                    exc_info=True,
+                )
+            self._processing_page = ProcessingPage(
+                scanner=self._scanner,
+                provider=self._image_provider,
+                preset_store=preset_store,
+            )
+        return self._processing_page
+
+    def _ensure_image_provider(self):
+        """Garante um `ImageGenerationProvider` configurado.
+
+        V1 — MVP de automação:
+            O motor agora é o `ChatGPTDesktopAutomationProvider`, que
+            NÃO depende da chave da OpenAI (automa o ChatGPT Desktop
+            via clipboard + atalhos). Por isso, a checagem
+            ``self._cred.has_key()`` foi REMOVIDA deste método.
+
+        V2 vai simplificar isto: o provider é instanciado uma vez no
+        ``__init__`` (sem lazy), e o ``CredentialManager`` sai do
+        caminho. Por enquanto mantemos o lazy para evitar mexer na
+        sequência de inicialização dos testes.
+        """
+        if self._image_provider is not None:
+            return self._image_provider
+        # TODO(V2): remover este lazy — provider será atributo de
+        # instância, criado no __init__.
+        from app.core.providers.chatgpt_desktop_automation_provider import (
+            ChatGPTDesktopAutomationProvider,
+        )
+
+        self._image_provider = ChatGPTDesktopAutomationProvider()
+        logger.info("ChatGPTDesktopAutomationProvider instanciado e pronto")
+        return self._image_provider
+
+    def _openai_client_factory(self, api_key_from_request: str, timeout: float):
+        """Factory injetado no `OpenAIImageGenerationProvider`.
+
+        O provider chama `(api_key, timeout)` na criação do cliente.
+        Aqui ignoramos a chave recebida por argumento (que vem
+        sempre vazia — o `BatchProcessor` não a propaga) e usamos
+        a chave persistida no `CredentialManager`.
+
+        Se a chave mudar entre chamadas (caso raro), o provider
+        recria o cliente automaticamente porque comparamos
+        `request.api_key` com `self._api_key_used` — mas como o
+        argumento é sempre vazio, na prática a chave efetiva é a
+        mesma durante toda a vida do provider, então o cliente
+        também é criado uma única vez (o que casa com o comentário
+        do provider sobre reusar o pool HTTP/2).
+        """
+        from openai import OpenAI
+
+        from app.core.providers.openai_image_generation_provider import (
+            OPENAI_API_BASE_URL,
+            _assert_openai_base_url,
+        )
+
+        key = self._cred.get_key() or ""
+        client = OpenAI(
+            api_key=key,
+            timeout=timeout,
+            base_url=OPENAI_API_BASE_URL,
+        )
+        _assert_openai_base_url(client)
+        return client
+
+    def _refresh_provider_on_processing_page(self) -> None:
+        """Propaga o provider atual (se houver) para a página.
+
+        Chamado em três pontos:
+          * lazy-load da aba Processamento (chave já estava salva);
+          * após salvar a chave no diálogo de Configuração;
+          * após remover a chave (limpa o provider na página).
+
+        Se a página ainda não foi instanciada, não faz nada —
+        o lazy-load cuidará do repasse quando ela for criada.
+        """
+        if self._processing_page is None:
+            return
+        # Provider pode ser None (sem chave) — `set_provider`
+        # aceita isso e o widget reage desligando o botão.
+        try:
+            self._processing_page.set_provider(self._image_provider)
+        except Exception:  # noqa: BLE001
+            logger.debug("Falha ao repassar provider (ignorado)", exc_info=True)
+
     # ------------------------------------------------------------------ #
     # Tabs                                                                #
     # ------------------------------------------------------------------ #
@@ -160,6 +280,21 @@ class MainWindow(QMainWindow):
             self._tabs.removeTab(index)
             self._tabs.insertTab(index, widget, "Status Geral")
             self._tabs.setCurrentIndex(index)
+            return
+        # Lazy-load do ProcessingPage — também tenta injetar o
+        # provider caso a chave já esteja salva.
+        if self._tabs.tabText(index) == "Processamento" and self._processing_page is None:
+            # Garante o provider ANTES de criar a página, para que
+            # o `ProcessingPage` já receba o provider no construtor
+            # (caso comum: chave salva antes da primeira abertura).
+            self._ensure_image_provider()
+            self._ensure_processing_page()
+            page = self._processing_page
+            assert page is not None
+            self._tabs.removeTab(index)
+            self._tabs.insertTab(index, page, "Processamento")
+            self._tabs.setCurrentIndex(index)
+            self._refresh_provider_on_processing_page()
 
     def _on_batch_activated(self, batch_id: str) -> None:
         """Sinal vindo do duplo-clique no dashboard: navegar para
@@ -245,14 +380,6 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         return widget
 
-    def _build_processing_tab(self) -> QWidget:
-        # `ProcessingPage` empilha `FolderScanWidget` +
-        # `BatchProcessingWidget` e faz a ponte entre eles — o
-        # `FolderScanWidget` emite `scan_finished` quando o scan
-        # termina, e o `BatchProcessingWidget` recebe a lista
-        # convertida em `ImageJob` via `set_jobs`.
-        return ProcessingPage(scanner=self._scanner)
-
     def _open_presets_dialog(self) -> None:
         from app.data.storage import PromptPresetStore
         from app.ui.dialogs.prompt_preset_dialog import PromptPresetDialog
@@ -273,8 +400,22 @@ class MainWindow(QMainWindow):
         dlg.exec()
         result = dlg.result()
         if result.saved:
+            # Chave salva: instancia o provider (lazy) e propaga
+            # para o `ProcessingPage` se já tiver sido construído.
+            # Isso faz o botão "Iniciar" destravar automaticamente
+            # assim que a chave é cadastrada.
+            self._ensure_image_provider()
+            self._refresh_provider_on_processing_page()
             self.statusBar().showMessage("Credencial salva.", 5000)
         elif result.deleted:
+            # Chave removida: zera o provider e propaga None.
+            if self._image_provider is not None:
+                try:
+                    self._image_provider.close()
+                except Exception:  # noqa: BLE001
+                    logger.debug("Falha ao fechar provider (ignorado)", exc_info=True)
+                self._image_provider = None
+            self._refresh_provider_on_processing_page()
             self.statusBar().showMessage("Credencial removida.", 5000)
 
     # ------------------------------------------------------------------ #

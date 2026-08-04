@@ -386,7 +386,18 @@ class CredentialManager:
         """
         from openai import OpenAI
 
-        return OpenAI(api_key=key, timeout=10.0)
+        from app.core.providers.openai_image_generation_provider import (
+            OPENAI_API_BASE_URL,
+            _assert_openai_base_url,
+        )
+
+        client = OpenAI(
+            api_key=key,
+            timeout=10.0,
+            base_url=OPENAI_API_BASE_URL,
+        )
+        _assert_openai_base_url(client)
+        return client
 
 
 # --------------------------------------------------------------------------- #

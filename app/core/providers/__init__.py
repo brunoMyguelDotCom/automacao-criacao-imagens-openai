@@ -9,6 +9,9 @@ Implementações concretas disponíveis:
       (openai 2.50.0) via ``client.images.edit()``. Endpoint
       `/v1/images/edits` é o ÚNICO que aceita imagem de referência
       + prompt de texto. Modelos suportados: gpt-image-1, dall-e-2.
+    * `ChatGPTDesktopAutomationProvider` — V1/MVP. Direciona o
+      ChatGPT Desktop aberto no Windows via clipboard + atalhos de
+      teclado. Não chama API.
 """
 
 from app.core.models.generation import (
@@ -18,6 +21,9 @@ from app.core.models.generation import (
     GenerationResult,
     RETRYABLE_ERROR_CODES,
 )
+from app.core.providers.chatgpt_desktop_automation_provider import (
+    ChatGPTDesktopAutomationProvider,
+)
 from app.core.providers.image_generation_provider import ImageGenerationProvider
 from app.core.providers.openai_image_generation_provider import (
     OpenAIImageGenerationProvider,
@@ -26,6 +32,7 @@ from app.core.providers.openai_image_generation_provider import (
 __all__ = [
     "ImageGenerationProvider",
     "OpenAIImageGenerationProvider",
+    "ChatGPTDesktopAutomationProvider",
     "GenerationRequest",
     "GenerationResult",
     "GenerationError",
