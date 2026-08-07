@@ -1,0 +1,4 @@
+pywinauto>=0.6.8
+uiautomation>=2.0.18
+pyperclip>=1.8.2
+watchdog>=4.0.0

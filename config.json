@@ -1,0 +1,20 @@
+{
+    "input_folder": "input",
+    "output_folder": "output",
+    "download_folder": "downloaded",
+    "failed_folder": "failed",
+    "processed_folder": "processed",
+    "prompts_folder": "prompts",
+    "logs_folder": "logs",
+    "log_file": "logs/log.txt",
+    "max_retries": 3,
+    "wait_generation_timeout": 180,
+    "wait_generation_poll": 2,
+    "wait_download_timeout": 120,
+    "wait_download_poll": 2,
+    "watcher_enabled": false,
+    "processed_action": "move",
+    "use_clipboard_for_prompt": true,
+    "chatgpt_window_title_substring": "ChatGPT",
+    "image_extensions": [".jpg", ".jpeg", ".png", ".webp", ".bmp"]
+}

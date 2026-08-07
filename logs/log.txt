@@ -1,0 +1,4 @@
+[23:18:13] [INFO] main: Iniciando GPT Image Batch Generator
+[23:18:13] [INFO] main: Raiz do projeto: /home/brunodotcom/Documents/00 - Dev/criacao de imagens v2
+[23:18:13] [INFO] main: Encontradas 0 imagens em /home/brunodotcom/Documents/00 - Dev/criacao de imagens v2/input
+[23:18:13] [INFO] main: Nada para processar. Saindo.
